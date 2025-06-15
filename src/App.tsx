@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./App.css";
 
 type Node = {
@@ -59,9 +59,24 @@ function App() {
     Record<string, string>
   >({});
 
+  const [connectionStatus, setConnectionStatus] = useState<
+    "Connected" | "Disconnected" | "Error"
+  >("Disconnected");
+  const socketRef = useRef<WebSocket | null>(null);
+
   const bus: EventBus = {
     sendEvent: (event: string) => {
-      console.log(`Sending event: ${event}`);
+      if (
+        socketRef.current &&
+        socketRef.current.readyState === WebSocket.OPEN
+      ) {
+        socketRef.current.send(
+          JSON.stringify({
+            event,
+            textInputStates,
+          }),
+        );
+      }
     },
     setTextInputValue: (id: string, value: string) => {
       setTextInputStates((prevStates) => ({
@@ -75,6 +90,30 @@ function App() {
     fetch("http://localhost:8000/plugins/text-block-plugin/ui")
       .then((res) => res.json())
       .then((json) => setElement(json));
+
+    const socket = new WebSocket("ws://localhost:8000/ws");
+    socketRef.current = socket;
+
+    socket.onopen = () => {
+      console.log("WebSocket connection opened");
+      setConnectionStatus("Connected");
+    };
+    socket.onerror = (error) => {
+      console.error("WebSocket connection error:", error);
+      setConnectionStatus("Error");
+    };
+    socket.onclose = () => {
+      console.log("WebSocket connection closed");
+      setConnectionStatus("Disconnected");
+    };
+
+    return () => {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.close();
+      } else if (socket.readyState === WebSocket.CONNECTING) {
+        socket.addEventListener("open", () => socket.close());
+      }
+    };
   }, []);
 
   return <>{el === null ? <div>Loading...</div> : element(el, bus)}</>;
